@@ -6,12 +6,43 @@ from datetime import datetime, timedelta
 import pytz
 import os
 from werkzeug.utils import secure_filename # type: ignore
+import os, json, io
+from googleapiclient.discovery import build# type: ignore
+from google.oauth2 import service_account# type: ignore
+from googleapiclient.http import MediaIoBaseUpload# type: ignore
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'cambia_esto_para_produccion'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+
+LOCAL_TZ = pytz.timezone('America/Bogota')
+# Configuración Google Drive
+# Cargar credenciales desde variable de entorno (Render)
+creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
+creds = service_account.Credentials.from_service_account_info(
+    creds_dict,
+    scopes=['https://www.googleapis.com/auth/drive.file']
+)
+
+# Configura tu carpeta de Drive
+FOLDER_ID = '1A6ThwslLwl4Za8WjPzLHiLZvgK7dWY6J' # Reemplaza con tu Folder ID
+
+def upload_to_drive(file_storage, client_name):
+    """Sube un archivo a Google Drive y devuelve el link de acceso"""
+    service = build('drive', 'v3', credentials=creds)
+    filename = f"{client_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_storage.filename}"
+    file_metadata = {'name': filename, 'parents': [FOLDER_ID]}
+    media = MediaIoBaseUpload(io.BytesIO(file_storage.read()), mimetype=file_storage.mimetype)
+
+    uploaded_file = service.files().create(
+        body=file_metadata, media_body=media, fields='id'
+    ).execute()
+
+    file_id = uploaded_file.get('id')
+    return f"https://drive.google.com/file/d/{file_id}/view"
+
 
 UPLOAD_FOLDER = os.path.join('static', 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf'}
@@ -38,6 +69,8 @@ class Venta(db.Model):
     pagado_fecha = db.Column(db.DateTime, nullable=True)
     enviado_fecha = db.Column(db.DateTime, nullable=True)
     comprobante_path = db.Column(db.String(255), nullable=True)
+    factura_url = db.Column(db.String(300), nullable=True)
+
 
     @property
     def total(self):
@@ -190,21 +223,36 @@ def index():
 
     return render_template('index.html', ventas=ventas, total_count=total_count, kpis=kpis)
 
-@app.route('/toggle/<int:venta_id>/<campo>')
+@app.route('/toggle/<int:venta_id>/<campo>', methods=['POST', 'GET'])
 def toggle(venta_id, campo):
     venta = Venta.query.get_or_404(venta_id)
     now = datetime.utcnow()
+
     if campo == 'pagado':
         venta.pagado = not venta.pagado
-        venta.pagado_fecha = now if venta.pagado else None
+        if venta.pagado:
+            venta.pagado_fecha = now
+            # Verificamos si se subió una factura
+            if 'factura' in request.files:
+                file = request.files['factura']
+                if file and file.filename:
+                    factura_url = upload_to_drive(file, venta.cliente)
+                    venta.factura_url = factura_url
+        else:
+            venta.pagado_fecha = None
+            venta.factura_url = None
+
     elif campo == 'enviado':
         venta.enviado = not venta.enviado
         venta.enviado_fecha = now if venta.enviado else None
+
     else:
         abort(400)
+
     db.session.commit()
     qs = request.query_string.decode('utf-8')
     return redirect(url_for('index') + ('?' + qs if qs else ''))
+
 
 @app.route('/delete/<int:venta_id>', methods=['POST'])
 def delete(venta_id):
