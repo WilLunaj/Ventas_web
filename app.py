@@ -9,7 +9,7 @@ from werkzeug.utils import secure_filename # type: ignore
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'cambia_esto_para_produccion'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///ventas.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
