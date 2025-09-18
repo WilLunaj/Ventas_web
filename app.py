@@ -4,12 +4,14 @@ from io import BytesIO
 import pandas as pd
 from datetime import datetime, timedelta
 import pytz
-import os
 from werkzeug.utils import secure_filename # type: ignore
-import os, json, io
-from googleapiclient.discovery import build# type: ignore
-from google.oauth2 import service_account# type: ignore
+import os
+import json
+import io
+from google.oauth2 import service_account   # type: ignore
+from googleapiclient.discovery import build # type: ignore
 from googleapiclient.http import MediaIoBaseUpload# type: ignore
+from googleapiclient.http import MediaFileUpload# type: ignore
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'cambia_esto_para_produccion'
@@ -18,30 +20,59 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 LOCAL_TZ = pytz.timezone('America/Bogota')
-# Configuración Google Drive
-# Cargar credenciales desde variable de entorno (Render)
-creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
-creds = service_account.Credentials.from_service_account_info(
-    creds_dict,
-    scopes=['https://www.googleapis.com/auth/drive.file']
-)
+
+google_creds_str = os.environ.get("GOOGLE_CREDENTIALS")
+if not google_creds_str:
+    raise RuntimeError("GOOGLE_CREDENTIALS environment variable is not set.")
+creds_dict = json.loads(google_creds_str)
+creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/drive.file"])
+drive_service = build("drive", "v3", credentials=creds)
 
 # Configura tu carpeta de Drive
 FOLDER_ID = '1A6ThwslLwl4Za8WjPzLHiLZvgK7dWY6J' # Reemplaza con tu Folder ID
 
-def upload_to_drive(file_storage, client_name):
-    """Sube un archivo a Google Drive y devuelve el link de acceso"""
-    service = build('drive', 'v3', credentials=creds)
-    filename = f"{client_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_storage.filename}"
-    file_metadata = {'name': filename, 'parents': [FOLDER_ID]}
-    media = MediaIoBaseUpload(io.BytesIO(file_storage.read()), mimetype=file_storage.mimetype)
+def get_or_create_client_folder(cliente, parent_folder_id):
+    """Busca o crea carpeta en Drive para un cliente."""
+    query = f"name='{cliente}' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+    items = results.get("files", [])
 
-    uploaded_file = service.files().create(
-        body=file_metadata, media_body=media, fields='id'
+    if items:
+        return items[0]["id"]  # Ya existe carpeta
+    else:
+        # Crear nueva carpeta
+        file_metadata = {
+            "name": cliente,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [parent_folder_id]
+        }
+        folder = drive_service.files().create(body=file_metadata, fields="id").execute()
+        return folder.get("id")
+
+
+def upload_to_drive(file, filename, cliente, parent_folder_id):
+    """Sube un archivo a la carpeta del cliente en Google Drive y devuelve el enlace."""
+    # Obtener o crear carpeta del cliente
+    client_folder_id = get_or_create_client_folder(cliente, parent_folder_id)
+
+    # Guardamos en temporal
+    tmp_path = os.path.join("tmp", secure_filename(filename))
+    os.makedirs("tmp", exist_ok=True)
+    file.save(tmp_path)
+
+    file_metadata = {"name": filename, "parents": [client_folder_id]}
+    media = MediaFileUpload(tmp_path, resumable=True)
+    uploaded = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id, webViewLink"
     ).execute()
 
-    file_id = uploaded_file.get('id')
-    return f"https://drive.google.com/file/d/{file_id}/view"
+    os.remove(tmp_path)  # limpiar temporal
+
+    return uploaded.get("webViewLink")
+
+
 
 
 UPLOAD_FOLDER = os.path.join('static', 'uploads')
@@ -232,11 +263,15 @@ def toggle(venta_id, campo):
         venta.pagado = not venta.pagado
         if venta.pagado:
             venta.pagado_fecha = now
-            # Verificamos si se subió una factura
             if 'factura' in request.files:
                 file = request.files['factura']
                 if file and file.filename:
-                    factura_url = upload_to_drive(file, venta.cliente)
+                    factura_url = upload_to_drive(
+                file,
+                f"factura_{venta.cliente}_{now.strftime('%Y%m%d_%H%M%S')}_{secure_filename(file.filename)}",
+                cliente=venta.cliente,
+                parent_folder_id=FOLDER_ID
+                )
                     venta.factura_url = factura_url
         else:
             venta.pagado_fecha = None
@@ -277,28 +312,20 @@ def upload_comprobante(venta_id):
         return redirect(url_for('index'))
 
     if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{venta.cliente}_{timestamp}_{secure_filename(file.filename)}"
 
-        # 👉 carpeta por cliente
-        client_folder = os.path.join(app.config['UPLOAD_FOLDER'], venta.cliente.replace(" ", "_"))
-        os.makedirs(client_folder, exist_ok=True)
-
-        # nombre final del archivo
-        filename = f"{venta.cliente}_{timestamp}_{filename}"
-        file_path = os.path.join(client_folder, filename)
-
-        file.save(file_path)
-
-        # guardamos en DB la ruta relativa
-        venta.comprobante_path = file_path
+        # Subir a Google Drive
+        factura_url = upload_to_drive(file, filename, venta.cliente, FOLDER_ID)
+        venta.factura_url = factura_url
         db.session.commit()
 
-        flash("Comprobante guardado.", "success")
+        flash("Comprobante guardado en Google Drive.", "success")
     else:
         flash("Formato no permitido", "danger")
 
     return redirect(url_for('index'))
+
 
 
 @app.route('/export')
