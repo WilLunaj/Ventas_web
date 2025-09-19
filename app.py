@@ -24,6 +24,7 @@ with app.app_context():
 
 LOCAL_TZ = pytz.timezone('America/Bogota')
 
+
 google_creds_str = os.environ.get("GOOGLE_CREDENTIALS")
 if not google_creds_str:
     raise RuntimeError("GOOGLE_CREDENTIALS environment variable is not set.")
