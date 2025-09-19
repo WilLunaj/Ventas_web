@@ -13,6 +13,9 @@ from google.oauth2 import service_account   # type: ignore
 from googleapiclient.discovery import build # type: ignore
 from googleapiclient.http import MediaIoBaseUpload# type: ignore
 from googleapiclient.http import MediaFileUpload# type: ignore
+import dotenv # type: ignore
+
+dotenv.load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'cambia_esto_para_produccion'
@@ -25,17 +28,19 @@ LOCAL_TZ = pytz.timezone('America/Bogota')
 
 
 google_creds_str = os.environ.get("GOOGLE_CREDENTIALS")
-if not google_creds_str:
-    raise RuntimeError("GOOGLE_CREDENTIALS environment variable is not set.")
-creds_dict = json.loads(google_creds_str)
-creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/drive.file"])
-drive_service = build("drive", "v3", credentials=creds)
-
-# Configura tu carpeta de Drive
-FOLDER_ID = '1A6ThwslLwl4Za8WjPzLHiLZvgK7dWY6J' # Reemplaza con tu Folder ID
+if google_creds_str:
+    creds_dict = json.loads(google_creds_str)
+    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/drive.file"])
+    drive_service = build("drive", "v3", credentials=creds)
+    FOLDER_ID = '1A6ThwslLwl4Za8WjPzLHiLZvgK7dWY6J' # Reemplaza con tu Folder ID
+else:
+    drive_service = None
+    FOLDER_ID = None
 
 def get_or_create_client_folder(cliente, parent_folder_id):
     """Busca o crea carpeta en Drive para un cliente."""
+    if not drive_service or not parent_folder_id:
+        raise RuntimeError("Google Drive no está configurado.")
     query = f"name='{cliente}' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     results = drive_service.files().list(q=query, fields="files(id, name)").execute()
     items = results.get("files", [])
@@ -55,6 +60,8 @@ def get_or_create_client_folder(cliente, parent_folder_id):
 
 def upload_to_drive(file, filename, cliente, parent_folder_id):
     """Sube un archivo a la carpeta del cliente en Google Drive y devuelve el enlace."""
+    if not drive_service or not parent_folder_id:
+        raise RuntimeError("Google Drive no está configurado.")
     # Obtener o crear carpeta del cliente
     client_folder_id = get_or_create_client_folder(cliente, parent_folder_id)
 
@@ -110,8 +117,6 @@ class Venta(db.Model):
     def total(self):
         return round(self.cantidad * self.precio_unitario, 2)
     
-    with app.app_context(): db.create_all()
-
 # -------------------
 # Jinja filter para mostrar datetimes en zona local
 # -------------------
