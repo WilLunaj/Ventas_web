@@ -11,6 +11,19 @@
 
     <h1 class="mb-4 text-center">📊 Gestor de Ventas</h1>
 
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="mb-3">
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+            </div>
+        {% endif %}
+        {% endwith %}
+
     <!-- Formulario nueva venta -->
     <form method="post" class="card p-3 mb-4 shadow-sm">
         <h5 class="mb-3">➕ Registrar nueva venta</h5>
@@ -25,7 +38,7 @@
                 <input type="number" name="cantidad" class="form-control form-control-lg" placeholder="Cantidad" min="1" required>
             </div>
             <div class="col">
-                <input type="number" step="0.01" name="precio_unitario" class="form-control form-control-lg" placeholder="Precio unitario" min="0" required>
+                <input type="number" step="0.01" name="precio_unitario" class="form-control form-control-lg" placeholder="Precio unitario" min="0.01" required>
             </div>
         </div>
         <div class="mb-2">
@@ -34,77 +47,30 @@
         <button type="submit" class="btn btn-success btn-lg w-100">💾 Registrar venta</button>
     </form>
 
-    <!-- Filtros -->
-    <form method="get" class="card p-3 mb-4 shadow-sm">
-        <h5 class="mb-3">🔍 Filtros</h5>
-        <div class="row g-2">
-            <div class="col-md-3">
-                <input type="text" name="cliente" value="{{ request.args.get('cliente','') }}" class="form-control" placeholder="Cliente">
-            </div>
-            <div class="col-md-3">
-                <input type="text" name="producto" value="{{ request.args.get('producto','') }}" class="form-control" placeholder="Producto">
-            </div>
-            <div class="col-md-3">
-                <input type="text" name="metodo_pago" value="{{ request.args.get('metodo_pago','') }}" class="form-control" placeholder="Método pago">
-            </div>
-            <div class="col-md-3">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="unpaid" value="1" {% if request.args.get('unpaid')=='1' %}checked{% endif %}>
-                    <label class="form-check-label">Solo no pagados</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="unsent" value="1" {% if request.args.get('unsent')=='1' %}checked{% endif %}>
-                    <label class="form-check-label">Solo no enviados</label>
-                </div>
-            </div>
-        </div>
-        <div class="row g-2 mt-2">
-            <div class="col-md-3">
-                <input type="date" name="date_from" value="{{ request.args.get('date_from','') }}" class="form-control">
-            </div>
-            <div class="col-md-3">
-                <input type="date" name="date_to" value="{{ request.args.get('date_to','') }}" class="form-control">
-            </div>
-            <div class="col-md-3">
-                <button type="submit" class="btn btn-primary w-100">Aplicar filtros</button>
-            </div>
-            <div class="col-md-3">
-                <a href="{{ url_for('index') }}" class="btn btn-secondary w-100">Limpiar</a>
-            </div>
-        </div>
-        <div class="mb-4 d-flex justify-content-between">
-            <div>
-                <a href="{{ url_for('export_xlsx') }}" class="btn btn-outline-success">
-                    📥 Descargar Excel
-                </a>
-            </div>
-        </div>
-    </form>
-
     <!-- KPIs -->
     <div class="row g-2 mb-4">
         <div class="col-6 col-md-3">
             <div class="card text-center p-2">
-                <div class="small text-muted">Pedidos</div>
-                <div class="fs-4 fw-bold">{{ kpis.total_count }}</div>
+                <div class="fw-bold">Ventas</div>
+                <div class="display-6">{{ kpis.total_count }}</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card text-center p-2">
-                <div class="small text-muted">Ingresos</div>
-                <div class="fs-4 fw-bold">${{ kpis.total_ingresos }}</div>
+                <div class="fw-bold">Ingresos</div>
+                <div class="display-6">${{ kpis.total_ingresos }}</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card text-center p-2">
-                <div class="small text-muted">AOV</div>
-                <div class="fs-4 fw-bold">${{ kpis.aov }}</div>
+                <div class="fw-bold">Promedio venta</div>
+                <div class="display-6">${{ kpis.aov }}</div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card text-center p-2">
-                <div class="small text-muted">No pagados / No enviados</div>
-                <div class="fs-6">{{ kpis.pct_unpaid }}% / {{ kpis.pct_unsent }}%</div>
+                <div class="fw-bold">No pagadas</div>
+                <div class="display-6">{{ kpis.pct_unpaid }}%</div>
             </div>
         </div>
     </div>
@@ -113,18 +79,25 @@
     <div class="d-none d-md-block">
         <div class="card shadow-sm">
             <div class="card-body table-responsive">
-                <table class="table table-striped align-middle">
+                <table class="table table-hover align-middle">
                     <thead>
                         <tr>
-                            <th>ID</th><th>Cliente</th><th>Producto</th><th>Cant</th><th>Precio</th>
-                            <th>Total</th><th>Método</th><th>Fecha</th>
-                            <th>Pagado</th><th>Enviado</th><th>Factura</th><th>Acciones</th>
+                            <th>Cliente</th>
+                            <th>Producto</th>
+                            <th>Cantidad</th>
+                            <th>Precio</th>
+                            <th>Total</th>
+                            <th>Método</th>
+                            <th>Fecha</th>
+                            <th>Pagado</th>
+                            <th>Enviado</th>
+                            <th>Comprobante</th>
+                            <th>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for v in ventas %}
                         <tr>
-                            <td>{{ v.id }}</td>
                             <td>{{ v.cliente }}</td>
                             <td>{{ v.producto }}</td>
                             <td>{{ v.cantidad }}</td>
@@ -132,26 +105,43 @@
                             <td>${{ v.total }}</td>
                             <td>{{ v.metodo_pago }}</td>
                             <td>{{ v.fecha | local_dt }}</td>
-
                             <td>
-                                <a href="{{ url_for('toggle', venta_id=v.id, campo='pagado') }}" class="btn btn-sm {% if v.pagado %}btn-success{% else %}btn-outline-secondary{% endif %}">Pagado</a>
-                            </td>
-                            <td>
-                                <a href="{{ url_for('toggle', venta_id=v.id, campo='enviado') }}" class="btn btn-sm {% if v.enviado %}btn-info{% else %}btn-outline-secondary{% endif %}">Enviado</a>
-                            </td>
-                            <td>
-                                {% if v.factura_url %}
-                                    <a href="{{ v.factura_url }}" target="_blank" class="btn btn-sm btn-outline-primary">📄 Ver factura</a>
+                                {% if v.pagado %}
+                                    <span class="badge bg-success">Sí</span>
+                                    <br>
+                                    <small>{{ v.pagado_fecha | local_dt }}</small>
                                 {% else %}
-                                    <form action="{{ url_for('toggle', venta_id=v.id, campo='pagado') }}" method="post" enctype="multipart/form-data">
-                                        <input type="file" name="factura" accept="image/*,application/pdf" class="form-control form-control-sm mb-1">
-                                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">📤 Subir factura</button>
+                                    <span class="badge bg-secondary">No</span>
+                                {% endif %}
+                                <form action="{{ url_for('toggle', venta_id=v.id, campo='pagado') }}" method="post" class="mt-1">
+                                    <button type="submit" class="btn btn-sm btn-outline-success">Cambiar</button>
+                                </form>
+                            </td>
+                            <td>
+                                {% if v.enviado %}
+                                    <span class="badge bg-info">Sí</span>
+                                    <br>
+                                    <small>{{ v.enviado_fecha | local_dt }}</small>
+                                {% else %}
+                                    <span class="badge bg-secondary">No</span>
+                                {% endif %}
+                                <form action="{{ url_for('toggle', venta_id=v.id, campo='enviado') }}" method="post" class="mt-1">
+                                    <button type="submit" class="btn btn-sm btn-outline-info">Cambiar</button>
+                                </form>
+                            </td>
+                            <td>
+                                {% if v.comprobante_path %}
+                                    <a href="{{ url_for('static', filename=v.comprobante_path) }}" target="_blank" class="btn btn-sm btn-outline-primary">📄 Ver comprobante</a>
+                                {% else %}
+                                    <form action="{{ url_for('upload_comprobante', venta_id=v.id) }}" method="post" enctype="multipart/form-data">
+                                        <input type="file" name="file" accept="image/*,application/pdf" class="form-control form-control-sm mb-1" required>
+                                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">📤 Subir</button>
                                     </form>
                                 {% endif %}
                             </td>
                             <td>
                                 <form action="{{ url_for('delete', venta_id=v.id) }}" method="post" onsubmit="return confirm('¿Eliminar venta?');">
-                                    <button type="submit" class="btn btn-sm btn-danger">🗑️</button>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">🗑️</button>
                                 </form>
                             </td>
                         </tr>
@@ -167,33 +157,54 @@
         {% for v in ventas %}
         <div class="card mb-2 shadow-sm">
             <div class="card-body">
-                <h5 class="card-title">{{ v.producto }} (x{{ v.cantidad }})</h5>
-                <p class="card-text">
-                    Cliente: <b>{{ v.cliente }}</b><br>
-                    Total: ${{ v.total }}<br>
-                    Método: {{ v.metodo_pago }}<br>
-                    Fecha: {{ v.fecha | local_dt }}
-                </p>
-                <div class="d-flex gap-2 mb-2">
-                    <a href="{{ url_for('toggle', venta_id=v.id, campo='pagado') }}" class="btn btn-sm {% if v.pagado %}btn-success{% else %}btn-outline-secondary{% endif %}">Pagado</a>
-                    <a href="{{ url_for('toggle', venta_id=v.id, campo='enviado') }}" class="btn btn-sm {% if v.enviado %}btn-info{% else %}btn-outline-secondary{% endif %}">Enviado</a>
+                <div class="fw-bold">{{ v.cliente }}</div>
+                <div>{{ v.producto }} ({{ v.cantidad }} x ${{ v.precio_unitario }})</div>
+                <div>Total: ${{ v.total }}</div>
+                <div>Método: {{ v.metodo_pago }}</div>
+                <div>Fecha: {{ v.fecha | local_dt }}</div>
+                <div>
+                    Pagado:
+                    {% if v.pagado %}
+                        <span class="badge bg-success">Sí</span>
+                        <small>{{ v.pagado_fecha | local_dt }}</small>
+                    {% else %}
+                        <span class="badge bg-secondary">No</span>
+                    {% endif %}
                 </div>
-                {% if v.factura_url %}
-                    <a href="{{ v.factura_url }}" target="_blank" class="btn btn-sm btn-outline-primary w-100">📄 Ver factura</a>
-                {% else %}
-                    <form action="{{ url_for('toggle', venta_id=v.id, campo='pagado') }}" method="post" enctype="multipart/form-data" class="mt-2">
-                        <input type="file" name="factura" accept="image/*,application/pdf" class="form-control form-control-sm mb-1">
-                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">📤 Subir factura</button>
+                <div>
+                    Enviado:
+                    {% if v.enviado %}
+                        <span class="badge bg-info">Sí</span>
+                        <small>{{ v.enviado_fecha | local_dt }}</small>
+                    {% else %}
+                        <span class="badge bg-secondary">No</span>
+                    {% endif %}
+                </div>
+                <div>
+                    {% if v.comprobante_path %}
+                        <a href="{{ url_for('static', filename=v.comprobante_path) }}" target="_blank" class="btn btn-sm btn-outline-primary">📄 Ver comprobante</a>
+                    {% else %}
+                        <form action="{{ url_for('upload_comprobante', venta_id=v.id) }}" method="post" enctype="multipart/form-data">
+                            <input type="file" name="file" accept="image/*,application/pdf" class="form-control form-control-sm mb-1" required>
+                            <button type="submit" class="btn btn-sm btn-outline-primary w-100">📤 Subir</button>
+                        </form>
+                    {% endif %}
+                </div>
+                <div class="mt-2">
+                    <form action="{{ url_for('delete', venta_id=v.id) }}" method="post" onsubmit="return confirm('¿Eliminar venta?');">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">🗑️ Eliminar</button>
                     </form>
-                {% endif %}
-                <form action="{{ url_for('delete', venta_id=v.id) }}" method="post" class="mt-2" onsubmit="return confirm('¿Eliminar venta?');">
-                    <button type="submit" class="btn btn-sm btn-danger w-100">🗑️ Eliminar</button>
-                </form>
+                </div>
             </div>
         </div>
         {% endfor %}
     </div>
 
+    <div class="mt-4 text-end">
+        <a href="{{ url_for('export_xlsx') }}" class="btn btn-outline-secondary">⬇️ Exportar Excel</a>
+    </div>
+
 </div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
