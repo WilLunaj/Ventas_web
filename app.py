@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, send_file, flash, abort # type: ignore
 from flask_sqlalchemy import SQLAlchemy # type: ignore
+from flask_migrate import Migrate # type: ignore
 from io import BytesIO
 import pandas as pd
 from datetime import datetime, timedelta
@@ -18,9 +19,7 @@ app.config['SECRET_KEY'] = 'cambia_esto_para_produccion'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
-
-with app.app_context():
-    db.create_all()
+migrate = Migrate(app, db)
 
 LOCAL_TZ = pytz.timezone('America/Bogota')
 
@@ -110,6 +109,8 @@ class Venta(db.Model):
     @property
     def total(self):
         return round(self.cantidad * self.precio_unitario, 2)
+    
+    with app.app_context(): db.create_all()
 
 # -------------------
 # Jinja filter para mostrar datetimes en zona local
@@ -363,6 +364,9 @@ def export_xlsx():
 
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all()
-    app.run(debug=True)
+        try:
+            db.create_all()
+            print("DB tables ensured (create_all ran).")
+        except Exception as e:
+            print("ERROR creating tables:", e)
 
